@@ -1,0 +1,42 @@
+# STEP 1: Install dependencies
+!pip install -q transformers accelerate sentencepiece gradio git+https://github.com/openai/whisper.git
+
+# STEP 2: Import modules
+!pip install whisper
+import whisper
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+import gradio as gr
+
+# STEP 3: Load Whisper for voice-to-text
+asr_model = whisper.load_model("base")
+
+# STEP 4: Load Open Source LLM (no login required)
+model_name = "tiiuae/falcon-rw-1b"  # Changed to a non-gated model
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype=torch.float16)
+
+# STEP 5: Function to process audio input
+def ask_llm_with_voice(audio):
+    # Step 5.1: Convert voice to text
+    audio_path = audio if isinstance(audio, str) else audio.name # Added this line for compatibility with gradio audio output
+    result = asr_model.transcribe(audio_path)
+    question = result["text"]
+
+    # Step 5.2: Pass text to LLM
+    input_ids = tokenizer(question, return_tensors="pt").to(model.device)
+    output = model.generate(**input_ids, max_new_tokens=150, do_sample=True)
+    answer = tokenizer.decode(output[0], skip_special_tokens=True)
+
+    # Step 5.3: Return both question and answer
+    return f"🗣️ Question: {question}\n\n🤖 Answer: {answer}"
+
+# STEP 6: Launch Gradio app with microphone
+gr.Interface(
+    fn=ask_llm_with_voice,
+    inputs=gr.Audio(type="filepath", label="🎤 Ask your question"),
+    outputs=gr.Textbox(label="💬 LLM Response"),
+    live=False,
+    title="Voice-based AI Doubt Solver",
+    description="Speak your doubt using the microphone. The system will transcribe and answer using an open-source LLM."
+).launch()
